@@ -47,7 +47,10 @@ Set up automatic processing with hooks:
 ;; Add your processing function to the hook
 (add-hook 'kindel-html-body-hook #'your-processing-function)
 
-;; Process emails automatically
+;; Enable automatic processing after notmuch tagging (optional)
+(kindel-setup-auto-processing)
+
+;; Or process emails manually
 (kindel-process-new-emails)
 ```
 

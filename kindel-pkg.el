@@ -1,3 +1,4 @@
+;;; kindel-pkg.el --- Package definition for kindel -*- lexical-binding: t; -*-
 (define-package "kindel" "1.0.0"
   "Email tagging and HTML body extraction for notmuch"
   '((emacs "27.1") (notmuch "0.32"))

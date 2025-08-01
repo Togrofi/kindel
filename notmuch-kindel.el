@@ -25,6 +25,9 @@
 ;;
 ;;   ;; Use automation hooks
 ;;   (add-hook 'kindel-html-body-hook #'your-processing-function)
+;;   ;; Enable auto-processing (optional):
+;;   (kindel-setup-auto-processing)
+;;   ;; Or call manually:
 ;;   (kindel-process-new-emails)
 ;;
 ;; Main functions:
@@ -125,6 +128,7 @@
 ;;;###autoload
 (defun kindel-process-new-emails ()
   "Process newly tagged emails automatically."
+  (interactive)
   (let ((html-bodies (kindel-process-tagged-emails kindel-processing-tag)))
     (when html-bodies
       (message "Kindel: Found %d emails with HTML content" (length html-bodies))
@@ -135,6 +139,16 @@
 Functions in this hook receive a list of HTML body strings."
   :type 'hook
   :group 'kindel)
+
+;;; Hook Integration
+
+(defun kindel-setup-auto-processing ()
+  "Set up automatic processing after notmuch tagging operations.
+Add this to your init.el if you want automatic processing:
+  (with-eval-after-load 'kindel (kindel-setup-auto-processing))"
+  (interactive)
+  (add-hook 'notmuch-after-tag-hook #'kindel-process-new-emails)
+  (message "Kindel auto-processing enabled"))
 
 ;;; Utility Functions
 
