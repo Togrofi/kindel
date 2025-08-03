@@ -26,7 +26,7 @@
 (require 'qp)
 (require 'seq)
 
-;;; Coniguration
+;;; Configuration
 
 (defgroup kindel nil
   "Email processing with notmuch and URL extraction."
