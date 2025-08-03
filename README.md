@@ -24,8 +24,8 @@ Extract URLs from tagged notmuch emails and download text content for processing
   ;; Your processing logic here
   )
 
-;; Register the processor
-(add-hook 'kindel-downloaded-text-hook #'my-text-processor)
+;; Add to the list of processors
+(add-to-list 'kindel-text-processors #'my-text-processor)
 
 ;; Process tagged emails
 (kindel-process-new-emails)
@@ -44,7 +44,7 @@ Available customization options:
 ## Functions
 
 - `kindel-process-new-emails`: Process emails tagged with `kindel-processing-tag`
-- `kindel-extract-urls`: Extract all URLs from a raw email message  
+- `kindel-decode-and-extract-urls`: Decode quoted-printable message and extract URLs  
 - `kindel-download-text-content`: Download text content from URL asynchronously
 
 ## Requirements

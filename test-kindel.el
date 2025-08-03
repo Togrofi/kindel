@@ -30,17 +30,17 @@ e-here/dp/B123456789\">product</a></p>
 </body>
 </html>")
 
-;; Test the updated kindel-extract-urls function
-(defun test-kindel-extract-urls ()
-  "Test the updated kindel-extract-urls function."
-  (let ((urls (kindel-extract-urls test-raw-message)))
+;; Test the updated kindel-decode-and-extract-urls function
+(defun test-kindel-decode-and-extract-urls ()
+  "Test the updated kindel-decode-and-extract-urls function."
+  (let ((urls (kindel-decode-and-extract-urls test-raw-message)))
     (message "Extracted URLs: %s" urls)
     urls))
 
 ;; Test with regex filtering
-(defun test-kindel-extract-urls-with-regex ()
-  "Test the updated kindel-extract-urls function with regex filtering."
-  (let* ((all-urls (kindel-extract-urls test-raw-message))
+(defun test-kindel-decode-and-extract-urls-with-regex ()
+  "Test the updated kindel-decode-and-extract-urls function with regex filtering."
+  (let* ((all-urls (kindel-decode-and-extract-urls test-raw-message))
          (urls (seq-filter (lambda (url) (string-match "amazon\\.com" url)) all-urls)))
     (message "Amazon URLs: %s" urls)
     urls))
@@ -48,7 +48,7 @@ e-here/dp/B123456789\">product</a></p>
 ;; Test multiline URLs
 (defun test-multiline-urls ()
   "Test extraction of URLs that span multiple lines."
-  (let ((urls (kindel-extract-urls test-multiline-message)))
+  (let ((urls (kindel-decode-and-extract-urls test-multiline-message)))
     (message "Multiline URLs: %s" urls)
     urls))
 
@@ -58,7 +58,7 @@ e-here/dp/B123456789\">product</a></p>
   (let* ((raw-email (with-temp-buffer
                       (insert-file-contents "test-raw-message")
                       (buffer-string)))
-         (urls (kindel-extract-urls raw-email)))
+         (urls (kindel-decode-and-extract-urls raw-email)))
     (message "Real email URLs: %s" urls)
     urls))
 
@@ -85,9 +85,9 @@ Arguments: TEXT is the downloaded content, URL is the source URL, MESSAGE-ID is 
 (defun kindel-test-message-id (message-id)
   "Test kindel processing for a specific MESSAGE-ID."
   (interactive "sMessage ID: ")
-  (let ((raw-message (kindel-get-raw-message message-id)))
+  (let ((raw-message (kindel-get-message-content message-id)))
     (if raw-message
-        (let ((urls (kindel-extract-urls raw-message)))
+        (let ((urls (kindel-decode-and-extract-urls raw-message)))
           (message "Found %d URLs in message %s: %s" 
                    (length urls) message-id urls)
           (dolist (url urls)
@@ -96,9 +96,9 @@ Arguments: TEXT is the downloaded content, URL is the source URL, MESSAGE-ID is 
       (message "Could not retrieve message: %s" message-id))))
 
 ;; Run tests
-(message "Testing kindel-extract-urls...")
-(test-kindel-extract-urls)
-(test-kindel-extract-urls-with-regex)
+(message "Testing kindel-decode-and-extract-urls...")
+(test-kindel-decode-and-extract-urls)
+(test-kindel-decode-and-extract-urls-with-regex)
 (message "Testing multiline URLs...")
 (test-multiline-urls)
 (message "Testing real email data...")
