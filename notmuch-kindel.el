@@ -83,7 +83,7 @@ Each function receives (text url message-id) as arguments."
 Removes the processing tag and adds the processed tag."
   (condition-case err
       (progn
-        (notmuch-command 
+        (notmuch-call-notmuch-process 
          "tag" 
          (format "-%s" kindel-processing-tag)
          (format "+%s" kindel-processed-tag)
@@ -121,13 +121,15 @@ Removes the processing tag and adds the processed tag."
     (quoted-printable-decode-string no-soft-breaks)))
 
 (defun kindel--extract-urls-from-html (decoded-message)
-  "Extract all URLs from href attributes in decoded HTML message."
-  (let ((href-regex "href=\"\\([^\"]+\\)\"")
+  "Extract URLs from href attributes where link text matches kindel-link-text-pattern."
+  (let ((link-regex "<a[^>]*href=\"\\([^\"]+\\)\"[^>]*>\\([^<]*\\)</a>")
         (start 0)
         (urls '()))
-    (while (string-match href-regex decoded-message start)
-      (let ((url (match-string 1 decoded-message)))
-        (when (and url (not (string-empty-p url)))
+    (while (string-match link-regex decoded-message start)
+      (let ((url (match-string 1 decoded-message))
+            (text (match-string 2 decoded-message)))
+        (when (and url (not (string-empty-p url))
+                   text (string-match-p kindel-link-text-pattern text))
           (push url urls)))
       (setq start (match-end 0)))
     (nreverse urls)))
