@@ -26,7 +26,12 @@
 (require 'qp)
 (require 'seq)
 
-;;; Configuration
+;;; Coniguration
+
+(defgroup kindel nil
+  "Email processing with notmuch and URL extraction."
+  :group 'mail
+  :prefix "kindel-")
 
 (defcustom kindel-processing-tag "kindel"
   "Tag applied to emails that need processing."
@@ -69,56 +74,7 @@ Each function receives (text url message-id) as arguments."
   :type '(repeat function)
   :group 'kindel)
 
-;;; Processing State Tracking
 
-(defvar kindel--processing-state (make-hash-table :test 'equal)
-  "Hash table tracking processing state for each message.
-Key: message-id, Value: (total-urls completed-urls failed-urls).")
-
-(defun kindel-clear-processing-state ()
-  "Clear all processing state. Useful for cleanup or testing."
-  (clrhash kindel--processing-state))
-
-(defun kindel--init-message-processing (message-id url-count)
-  "Initialize processing state for MESSAGE-ID with URL-COUNT URLs."
-  (puthash message-id (list url-count 0 0) kindel--processing-state))
-
-(defun kindel--calculate-new-state (current-state success)
-  "Calculate new processing state from CURRENT-STATE and SUCCESS status.
-Returns (new-state . completion-status) where completion-status is
-:success, :failed, or nil if still processing."
-  (let* ((total (car current-state))
-         (completed (1+ (cadr current-state)))
-         (failed (if success (caddr current-state) (1+ (caddr current-state))))
-         (new-state (list total completed failed))
-         (completion-status (when (>= completed total)
-                             (if (> failed 0) :failed :success))))
-    (cons new-state completion-status)))
-
-(defun kindel--mark-url-completed (message-id success)
-  "Mark one URL as completed for MESSAGE-ID with SUCCESS status.
-Returns :success if all URLs succeeded, :failed if any failed, nil if still processing."
-  (let ((current-state (gethash message-id kindel--processing-state)))
-    (when current-state
-      (let* ((state-result (kindel--calculate-new-state current-state success))
-             (new-state (car state-result))
-             (completion-status (cdr state-result)))
-        (if completion-status
-            (remhash message-id kindel--processing-state)
-          (puthash message-id new-state kindel--processing-state))
-        completion-status))))
-
-;;; Error Handling Utilities
-
-(defun kindel--with-error-handling (operation description &rest args)
-  "Execute OPERATION with consistent error handling and logging.
-DESCRIPTION should describe what operation is being performed.
-ARGS are passed to the operation function."
-  (condition-case err
-      (apply operation args)
-    (error
-     (message "Kindel error %s: %s" description (error-message-string err))
-     nil)))
 
 ;;; Core Functions
 
@@ -141,21 +97,23 @@ Removes the processing tag and adds the processed tag."
 
 (defun kindel-get-tagged-emails (tag)
   "Get all message IDs for emails with TAG."
-  (kindel--with-error-handling
-   (lambda ()
-     (notmuch-call-notmuch-sexp
-      "search"
-      "--format=sexp"
-      "--output=messages"
-      (format "tag:%s" tag)))
-   "getting tagged emails"))
+  (condition-case err
+      (notmuch-call-notmuch-sexp
+       "search"
+       "--format=sexp"
+       "--output=messages"
+       (format "tag:%s" tag))
+    (error
+     (message "Kindel error getting tagged emails: %s" (error-message-string err))
+     nil)))
 
 (defun kindel--get-message-content (message-id)
   "Get the complete raw message content from MESSAGE-ID."
-  (kindel--with-error-handling
-   (lambda ()
-     (notmuch-command-to-string "show" "--format=raw" (format "id:%s" message-id)))
-   "getting message content"))
+  (condition-case err
+      (notmuch-command-to-string "show" "--format=raw" (format "id:%s" message-id))
+    (error
+     (message "Kindel error getting message content: %s" (error-message-string err))
+     nil)))
 
 (defun kindel--decode-message (raw-message)
   "Decode quoted-printable message, handling soft line breaks."
@@ -182,26 +140,16 @@ First handles quoted-printable soft line breaks, then decodes and extracts URLs.
       (kindel--extract-urls-from-html decoded-message))))
 
 ;;; HTTP Download Functions
-(defun kindel--make-download-callback (url message-id)
-  "Create download response callback for URL and MESSAGE-ID."
-  (lambda (status)
-    (kindel--handle-download-response status url message-id)))
-
-(defun kindel--handle-network-error (url message-id err)
-  "Handle network/connection errors when starting download for URL and MESSAGE-ID."
-  (message "Kindel network error for %s: %s" url (error-message-string err))
-  (let ((completion-result (kindel--mark-url-completed message-id nil)))
-    (when (eq completion-result :failed)
-      (message "Kindel: Processing failed for message %s - tags not updated" message-id))))
-
-(defun kindel--download-text-content (url message-id)
-  "Download text content from URL asynchronously with redirect following and process it."
+(defun kindel--download-text-content (url message-id completion-callback)
+  "Download text content from URL asynchronously and call COMPLETION-CALLBACK when done."
   (condition-case err
       (url-retrieve url
-                    (kindel--make-download-callback url message-id)
+                    (lambda (status)
+                      (kindel--handle-download-response status url message-id completion-callback))
                     nil t kindel-download-timeout)
     (error
-     (kindel--handle-network-error url message-id err))))
+     (message "Kindel network error for %s: %s" url (error-message-string err))
+     (funcall completion-callback nil))))
 
 (defun kindel--extract-response-content ()
   "Extract content from HTTP response buffer after headers."
@@ -210,29 +158,23 @@ First handles quoted-printable soft line breaks, then decodes and extracts URLs.
   (when (re-search-forward "^$" nil t)
     (buffer-substring-no-properties (point) (point-max))))
 
-(defun kindel--handle-http-error (status url message-id)
-  "Handle HTTP response errors and mark URL as failed."
-  (message "Kindel HTTP error for %s: %s" url (plist-get status :error))
-  (kindel--mark-url-completed message-id nil))
-
-(defun kindel--handle-download-success (url message-id)
-  "Handle successful download and process content."
-  (let ((content (kindel--extract-response-content)))
-    (if (and content (not (string-empty-p content)))
-        (progn
-          (message "Kindel downloaded %d chars from %s" (length content) url)
-          (kindel--process-downloaded-text content url message-id))
-      (kindel--mark-url-completed message-id nil))))
-
-(defun kindel--handle-download-response (status url message-id)
-  "Handle HTTP response from download and stream content to processors."
+(defun kindel--handle-download-response (status url message-id completion-callback)
+  "Handle HTTP response from download and call COMPLETION-CALLBACK with success status."
   (condition-case err
       (if (plist-get status :error)
-          (kindel--handle-http-error status url message-id)
-        (kindel--handle-download-success url message-id))
+          (progn
+            (message "Kindel HTTP error for %s: %s" url (plist-get status :error))
+            (funcall completion-callback nil))
+        (let ((content (kindel--extract-response-content)))
+          (if (and content (not (string-empty-p content)))
+              (progn
+                (message "Kindel downloaded %d chars from %s" (length content) url)
+                (let ((success (kindel--run-processors content url message-id)))
+                  (funcall completion-callback success)))
+            (funcall completion-callback nil))))
     (error
      (message "Kindel response handling error for %s: %s" url (error-message-string err))
-     (kindel--mark-url-completed message-id nil)))
+     (funcall completion-callback nil)))
   (kill-buffer))
 
 (defun kindel--run-processors (text url message-id)
@@ -246,34 +188,27 @@ First handles quoted-printable soft line breaks, then decodes and extracts URLs.
         nil)))
    kindel-text-processors))
 
-(defun kindel--handle-completion-result (completion-result message-id)
-  "Handle the completion result and update tags if appropriate."
-  (cond
-   ((eq completion-result :success)
-    (kindel--update-message-tags message-id))
-   ((eq completion-result :failed)
-    (message "Kindel: Processing failed for message %s - tags not updated" message-id))))
-
-(defun kindel--process-downloaded-text (text url message-id)
-  "Process downloaded text content through all registered processors."
-  (let* ((processing-success (kindel--run-processors text url message-id))
-         (completion-result (kindel--mark-url-completed message-id processing-success)))
-    (kindel--handle-completion-result completion-result message-id)))
 
 ;;; Interactive Functions
 
 (defun kindel--process-message-urls (msg-id urls)
-  "Process URLs for a single message MSG-ID.
-If no URLs are found, immediately update message tags.
-Otherwise, initialize processing state and download each URL."
-  (if urls
+  "Process URLs for message MSG-ID with simple counter-based coordination."
+  (if (null urls)
       (progn
-        (kindel--init-message-processing msg-id (length urls))
-        (dolist (url urls)
-          (message "Kindel downloading from: %s" url)
-          (kindel--download-text-content url msg-id)))
-    (message "Kindel: No URLs found in message %s" msg-id)
-    (kindel--update-message-tags msg-id)))
+        (message "Kindel: No URLs found in message %s" msg-id)
+        (kindel--update-message-tags msg-id))
+    (let ((remaining (length urls))
+          (any-failed nil))
+      (dolist (url urls)
+        (message "Kindel downloading from: %s" url)
+        (kindel--download-text-content url msg-id
+          (lambda (success)
+            (unless success (setq any-failed t))
+            (setq remaining (1- remaining))
+            (when (= remaining 0)
+              (if any-failed
+                  (message "Kindel: Processing failed for message %s - tags not updated" msg-id)
+                (kindel--update-message-tags msg-id)))))))))
 
 (defun kindel--process-single-message (msg-id)
   "Process a single message MSG-ID."
