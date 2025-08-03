@@ -47,6 +47,7 @@ Available customization options:
 (setq kindel-processed-tag "kindel-processed") ; Tag added after processing (default)
 (setq kindel-download-timeout 10)              ; Download timeout in seconds
 (setq kindel-link-text-pattern "View")         ; Pattern to match in link text
+(setq kindel-allowed-senders '("do-not-reply@amazon.com")) ; Allowed email senders (default)
 ```
 
 ### Text Processors
@@ -65,13 +66,25 @@ Customize how downloaded content is processed:
 
 - `kindel-process-new-emails`: Process emails tagged with `kindel-processing-tag`
 
-## Tag Management
+## Email Filtering and Processing
+
+Kindel only processes emails from allowed senders for security:
+
+```elisp
+;; Allow multiple senders
+(setq kindel-allowed-senders '("do-not-reply@amazon.com" 
+                               "notifications@github.com"
+                               "alerts@example.com"))
+```
+
+### Tag Management
 
 Kindel automatically manages email tags during processing:
 1. Finds emails tagged with `kindel-processing-tag` (default: "kindel")
-2. Downloads content from matching URLs
-3. Runs all registered text processors
-4. On success: removes processing tag and adds `kindel-processed-tag` (default: "kindel-processed")
+2. Checks if sender is in `kindel-allowed-senders` list
+3. Downloads content from matching URLs (if sender allowed)
+4. Runs all registered text processors
+5. On success: removes processing tag and adds `kindel-processed-tag` (default: "kindel-processed")
 
 ## Requirements
 

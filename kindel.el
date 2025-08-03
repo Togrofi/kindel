@@ -54,6 +54,12 @@ Can be a string for exact match or a regexp for pattern matching."
   :type 'integer
   :group 'kindel)
 
+(defcustom kindel-allowed-senders '("do-not-reply@amazon.com")
+  "List of email addresses allowed to be processed by kindel.
+Only emails from these senders will be processed when tagged."
+  :type '(repeat string)
+  :group 'kindel)
+
 (defun kindel-save-to-file (text url message-id)
   "Save downloaded text content to a file.
 Files are saved as ~/kindel-downloads/MESSAGE-ID-URL-HASH-TIMESTAMP.txt"
@@ -95,14 +101,17 @@ Removes the processing tag and adds the processed tag."
               message-id (error-message-string err))
      nil)))
 
-(defun kindel-get-tagged-emails (tag)
-  "Get all message IDs for emails with TAG."
+(defun kindel-get-tagged-emails (tag senders)
+  "Get all message IDs for emails with TAG from SENDERS list."
   (condition-case err
-      (notmuch-call-notmuch-sexp
-       "search"
-       "--format=sexp"
-       "--output=messages"
-       (format "tag:%s" tag))
+      (let* ((from-clauses (mapcar (lambda (sender) (format "from:%s" sender)) senders))
+             (from-query (string-join from-clauses " OR "))
+             (full-query (format "tag:%s AND (%s)" tag from-query)))
+        (notmuch-call-notmuch-sexp
+         "search"
+         "--format=sexp"
+         "--output=messages"
+         full-query))
     (error
      (message "Kindel error getting tagged emails: %s" (error-message-string err))
      nil)))
@@ -225,16 +234,16 @@ First handles quoted-printable soft line breaks, then decodes and extracts URLs.
 (defun kindel-process-new-emails ()
   "Process newly tagged emails automatically."
   (interactive)
-  (let ((message-ids (kindel-get-tagged-emails kindel-processing-tag)))
-    (message "Kindel found %d emails with tag '%s'" (length message-ids) kindel-processing-tag)
+  (let ((message-ids (kindel-get-tagged-emails kindel-processing-tag kindel-allowed-senders)))
+    (message "Kindel found %d emails with tag '%s' from allowed senders" (length message-ids) kindel-processing-tag)
     (if message-ids
         (progn
           (dolist (msg-id message-ids)
             (kindel--process-single-message msg-id))
           (message "Kindel processing complete"))
-      (message "Kindel: No emails found with tag '%s'. Use 'notmuch tag +%s <search>' to tag emails first." 
-               kindel-processing-tag kindel-processing-tag))))
+      (message "Kindel: No emails found with tag '%s' from allowed senders: %s" 
+               kindel-processing-tag kindel-allowed-senders))))
 
 (provide 'kindel)
 
-;;; notmuch-kindel.el ends here
+;;; kindel.el ends here
